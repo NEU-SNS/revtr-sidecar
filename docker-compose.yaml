@@ -24,7 +24,7 @@ services:
       - -tcpinfo.eventsocket=/local/tcpevents.sock
       - -anonymize.ip=none
 
-  revtr-sidecar-mlab:
+  revtr-sidecar:
     build:
       context: .
       dockerfile: Dockerfile.example
@@ -36,8 +36,11 @@ services:
       # socket that the above services are not yet listening on.
       # So, allow restart.
       restart_policy:
-        condition: any
+        condition: always
         delay: 5s
     command:
       - -tcpinfo.eventsocket=/local/tcpevents.sock 
+      - -revtr.hostname=revtr.ccs.neu.edu
+      - -revtr.grpcPort=9999
+      - -revtr.APIKey=7vg3XfyGIJZL92Ql
       - -loglevel=debug

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"revtr-sidecar-mlab/log"
 	revtrpb "revtr-sidecar-mlab/revtr/pb"
+	"strconv"
 	"time"
 
 	"github.com/m-lab/go/flagx"
@@ -21,11 +22,14 @@ import (
 
 var (
 	mainCtx, mainCancel = context.WithCancel(context.Background())
-	RevtrGRPCPortProduction = 9999
-	// RevtrAPIPortDebug setting for the revtr api port in debug
-	RevtrGRPCPortDebug = 9998
-	IsDebugRevtr = false
+	
 	logger = log.GetLogger()
+
+	revtrGRPCPort = flag.String("revtr.grpcPort", "", "The gRPC port of the revtr API")  
+	// revtrAPIKey is the M-Lab API key used to call revtr API
+	revtrAPIKey = flag.String("revtr.APIKey", "", "The API key used by the M-Lab nodes to call the revtr API")
+	// revtrHostname is the hostname of the server hosting the Revtr API
+	revtrHostname = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
 )
 
 // event contains fields for an open event.
@@ -60,14 +64,13 @@ func (h *handler) Close(ctx context.Context, timestamp time.Time, uuid string) {
 	log.Println("close", uuid, timestamp)
 }
 
-func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMeasurement) {
+func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMeasurement, revtrAPIKey string) {
 	// Put a timeout in context
-	apiKey := "7vg3XfyGIJZL92Ql"
 	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
 	logger.Debugf("Sending %d reverse traceroutes to the revtr server...", len(revtrMeasurements))
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
 		Revtrs : revtrMeasurements,
-		Auth: apiKey,
+		Auth: revtrAPIKey,
 		CheckDB: false,
 	})
 	if err != nil {
@@ -77,7 +80,7 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 } 
 
 // ProcessOpenEvents reads and processes events received by the open handler.
-func (h *handler) ProcessOpenEvents(ctx context.Context) {
+func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string, revtrGRPCPort int) {
 
 	// Create a gRPC revtr client 
 	creds := credentials.NewTLS(&tls.Config{
@@ -88,13 +91,10 @@ func (h *handler) ProcessOpenEvents(ctx context.Context) {
 	// 	log.Fatal(err)
 	// 	return nil, err
 	// }
-	revtrPort := RevtrGRPCPortProduction
-	if IsDebugRevtr {
-		revtrPort = RevtrGRPCPortDebug
-	}
+
 	grpcDialOptions := []grpc.DialOption{}
 	// connStr := fmt.Sprintf("%s:%d", srvs[0].Target, srvs[0].Port)
-	connStr := fmt.Sprintf("%s:%d", "revtr.ccs.neu.edu", revtrPort)
+	connStr := fmt.Sprintf("%s:%d", revtrHostname, revtrGRPCPort)
 	// grpcDialOptions = append(grpcDialOptions, grpc.WithInsecure())
 	grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(creds))
 	conn, err := grpc.Dial(connStr, grpcDialOptions...)
@@ -160,7 +160,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context) {
 				log.Infof("Sending batch of %d revtrs", len(revtrsToSend))
 				revtrs := make([]*revtrpb.RevtrMeasurement, len(revtrsToSend))
 				copy(revtrs, revtrsToSend)
-				go callRevtr(&client, revtrsToSend)
+				go callRevtr(&client, revtrsToSend, revtrAPIKey)
 				revtrsToSend = nil
 			}
 		case <-ctx.Done():
@@ -180,11 +180,30 @@ func main() {
 		log.Fatal("-tcpinfo.eventsocket path is required")
 	}
 
+	if *revtrAPIKey == "" {
+		log.Fatal("-revtr.APIKey is required")
+	}
+
+	if *revtrHostname == "" {
+		log.Fatal("-revtr.hostname is required")
+	}
+
+	var revtrGRPCPortInt int 
+	var err error
+	if *revtrGRPCPort == "" {
+		log.Fatal("-revtr.grpcPort is required")
+	} else {
+		revtrGRPCPortInt, err = strconv.Atoi(*revtrGRPCPort)
+		if err != nil {
+			log.Fatal("Bad argument revtr.grpcPort")
+		}
+	}
+
 	h := &handler{events: make(chan event)}
 
 	// Process events received by the eventsocket handler. The goroutine will
 	// block until an open event occurs or the context is cancelled.
-	go h.ProcessOpenEvents(mainCtx)
+	go h.ProcessOpenEvents(mainCtx, *revtrAPIKey, *revtrHostname, revtrGRPCPortInt)
 
 	// Begin listening on the eventsocket for new events, and dispatch them to
 	// the given handler.
