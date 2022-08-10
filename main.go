@@ -160,7 +160,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 				log.Infof("Sending batch of %d revtrs", len(revtrsToSend))
 				revtrs := make([]*revtrpb.RevtrMeasurement, len(revtrsToSend))
 				copy(revtrs, revtrsToSend)
-				go callRevtr(&client, revtrsToSend, revtrAPIKey)
+				go callRevtr(&client, revtrs, revtrAPIKey)
 				revtrsToSend = nil
 			}
 		case <-ctx.Done():
