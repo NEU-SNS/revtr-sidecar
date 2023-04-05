@@ -5,11 +5,15 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"revtr-sidecar-mlab/log"
-	revtrpb "revtr-sidecar-mlab/revtr/pb"
+	"net/http"
+	"revtr-sidecar/log"
+	revtrpb "revtr-sidecar/revtr/pb"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/m-lab/go/flagx"
@@ -42,6 +46,8 @@ type event struct {
 // handler implements the eventsocket.Handler interface.
 type handler struct {
 	events chan event
+	mlabIPtoSite map[string]string
+	mlabIPToSiteLock sync.RWMutex
 }
 
 // Open is called by tcp-info synchronously for every TCP open event.
@@ -77,26 +83,69 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 		logger.Error(err)
 	}
 
-} 
+}
+
+type MLabNode struct {
+	Hostname string `json:"hostname,omitempty"`
+	IPv4 string `json:"ipv4,omitempty"`
+}
+
+func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
+	url := mlabNodesURL
+	
+    resp, err := http.Get(url)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var results []MLabNode
+    err = json.NewDecoder(resp.Body).Decode(&results)
+    if err != nil {
+		log.Error(err)
+        return nil, err
+    }
+
+	// Now parse the map to have IPtoSite for MLab and SiteToIPs for Revtr
+	mlabIPtoSite := map[string]string{}
+
+	for _, mlabNode := range(results) {
+		// Parse the value to get the site 
+		if strings.Contains(mlabNode.Hostname, "ndt"){
+			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
+			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
+			// There are two types of NDT nodes, o ne with a iupui string?
+			var site string 
+			if strings.Contains(mlabSiteType, "iupui") {
+				site = mlabSiteTypeSplit[3]
+			} else {
+				site = mlabSiteTypeSplit[2]
+			}
+			mlabIPtoSite[mlabNode.IPv4] = site
+		}
+		
+	} 
+
+	return mlabIPtoSite, nil 
+
+}
 
 // ProcessOpenEvents reads and processes events received by the open handler.
 func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string, revtrGRPCPort int) {
 
-	// Create a gRPC revtr client 
-	creds := credentials.NewTLS(&tls.Config{
-		InsecureSkipVerify: true,
-
-	})
-	// if err != nil {
-	// 	log.Fatal(err)
-	// 	return nil, err
-	// }
-
 	grpcDialOptions := []grpc.DialOption{}
-	// connStr := fmt.Sprintf("%s:%d", srvs[0].Target, srvs[0].Port)
 	connStr := fmt.Sprintf("%s:%d", revtrHostname, revtrGRPCPort)
-	// grpcDialOptions = append(grpcDialOptions, grpc.WithInsecure())
-	grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(creds))
+	if revtrGRPCPort == 9998 {
+		// This is debug port, so no tls connection
+		grpcDialOptions = append(grpcDialOptions, grpc.WithInsecure())
+	} else {
+		creds := credentials.NewTLS(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+		grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(creds))
+	}
+	
 	conn, err := grpc.Dial(connStr, grpcDialOptions...)
 	if err != nil {
 		panic(err)
@@ -105,6 +154,19 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 
 	client := revtrpb.NewRevtrClient(conn)
 
+	sourcesWithAtlas, err := client.GetSources(context.Background(), &revtrpb.GetSourcesReq{
+		Auth: revtrAPIKey,
+		OnlyWithAtlas: true})
+	if err != nil {
+		log.Error(err)
+		return 
+	}
+	revtrSiteToIP := map[string]string{}
+
+	for _, sourceWithAtlas := range(sourcesWithAtlas.Srcs) {
+		revtrSiteToIP[sourceWithAtlas.Site] = sourceWithAtlas.Ip
+	} 
+	
 	// Skeleton for a revtr measurement coming from M-Lab
 
 	revtrMeasurement := revtrpb.RevtrMeasurement{
@@ -149,11 +211,22 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			
 			revtrMeasurementToSend := new(revtrpb.RevtrMeasurement)
 			*revtrMeasurementToSend = revtrMeasurement
-			revtrMeasurementToSend.Src = e.id.SrcIP
-			revtrMeasurementToSend.Dst = e.id.DstIP
-			logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
-			revtrsToSend = append(revtrsToSend, revtrMeasurementToSend)
-		
+			// Match the sources with the mapping of the revtr sites / IP addresses
+			// Check if we have a source in the same site as the NDT
+			if site, ok := h.mlabIPtoSite[e.id.SrcIP]; ok {
+				if revtrSrc, ok := revtrSiteToIP[site]; ok {
+					revtrMeasurementToSend.Src = revtrSrc
+					revtrMeasurementToSend.Dst = e.id.DstIP
+					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
+					revtrsToSend = append(revtrsToSend, revtrMeasurementToSend)
+				} else {
+					log.Infof("Site %s IP %s is not a revtr site", site, e.id.SrcIP)
+				}
+				
+			} else {
+				log.Infof("No NDT site matching for IP %s", e.id.SrcIP)
+			}
+			
 		case <- t.C:
 			if len(revtrsToSend) > 0 {
 				// Flush what we can flush 
@@ -170,7 +243,41 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	}
 }
 
+func refreshMLabNodes(h *handler) {
+
+	t := time.NewTicker(time.Hour * 6)
+
+	url := "https://siteinfo.mlab-oti.measurementlab.net/v2/sites/hostnames.json"
+	h.mlabIPToSiteLock.Lock()
+	mlabIPtoSite, err := getMLabNodes(url)
+	if err != nil {
+		panic(err)
+	}
+	h.mlabIPtoSite = mlabIPtoSite
+	h.mlabIPToSiteLock.Unlock()
+
+	
+	for {
+		select{
+		case <-t.C:
+			log.Infof("Refreshing MLab nodes")
+			h.mlabIPToSiteLock.Lock()
+			mlabIPtoSite, err := getMLabNodes(url)
+			if err != nil {
+				panic(err)
+			}
+			h.mlabIPtoSite = mlabIPtoSite
+			h.mlabIPToSiteLock.Unlock()
+		}
+	}
+
+}
+
 func main() {
+
+	h := &handler{events: make(chan event)}
+	go refreshMLabNodes(h)
+
 	defer mainCancel()
 
 	flag.Parse()
@@ -199,7 +306,7 @@ func main() {
 		}
 	}
 
-	h := &handler{events: make(chan event)}
+	
 
 	// Process events received by the eventsocket handler. The goroutine will
 	// block until an open event occurs or the context is cancelled.
