@@ -34,6 +34,9 @@ var (
 	revtrAPIKey = flag.String("revtr.APIKey", "", "The API key used by the M-Lab nodes to call the revtr API")
 	// revtrHostname is the hostname of the server hosting the Revtr API
 	revtrHostname = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
+	revtrSampling = flag.Int("revtr.sampling", 0, "Only run 1 over revtr.sample revtrs to not overload the system")
+	revtrTestSrc = "129.10.113.200"
+	revtrTestSite = "fring2"
 )
 
 // event contains fields for an open event.
@@ -70,12 +73,23 @@ func (h *handler) Close(ctx context.Context, timestamp time.Time, uuid string) {
 	log.Println("close", uuid, timestamp)
 }
 
-func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMeasurement, revtrAPIKey string) {
+func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMeasurement, revtrAPIKey string, revtrSampling int) {
 	// Put a timeout in context
 	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
-	logger.Debugf("Sending %d reverse traceroutes to the revtr server...", len(revtrMeasurements))
+
+	revtrMeasurementsSampled := []*revtrpb.RevtrMeasurement{}
+
+	for i, revtrMeasurement := range(revtrMeasurements) {
+		if i % revtrSampling == 0 {
+			revtrMeasurementsSampled = append(revtrMeasurementsSampled, revtrMeasurement)
+		}
+	}
+
+	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d", 
+	len(revtrMeasurementsSampled), revtrSampling)
+
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
-		Revtrs : revtrMeasurements,
+		Revtrs : revtrMeasurementsSampled,
 		Auth: revtrAPIKey,
 		CheckDB: false,
 	})
@@ -127,12 +141,16 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 		
 	} 
 
+	// Add ple2.cesnet.cz
+	mlabIPtoSite[revtrTestSrc] = revtrTestSite
+
 	return mlabIPtoSite, nil 
 
 }
 
 // ProcessOpenEvents reads and processes events received by the open handler.
-func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string, revtrGRPCPort int) {
+func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string,
+	 revtrGRPCPort int, revtrSampling int) {
 
 	grpcDialOptions := []grpc.DialOption{}
 	connStr := fmt.Sprintf("%s:%d", revtrHostname, revtrGRPCPort)
@@ -166,7 +184,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	for _, sourceWithAtlas := range(sourcesWithAtlas.Srcs) {
 		revtrSiteToIP[sourceWithAtlas.Site] = sourceWithAtlas.Ip
 	} 
-	
+	revtrSiteToIP[revtrTestSite] = revtrTestSrc 
 	// Skeleton for a revtr measurement coming from M-Lab
 
 	revtrMeasurement := revtrpb.RevtrMeasurement{
@@ -199,7 +217,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	}
 
 
-	t := time.NewTicker(30 * time.Second)
+	t := time.NewTicker(15 * time.Second)
 
 	revtrsToSend := [] * revtrpb.RevtrMeasurement{}
 
@@ -215,6 +233,8 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			// Check if we have a source in the same site as the NDT
 			if site, ok := h.mlabIPtoSite[e.id.SrcIP]; ok {
 				if revtrSrc, ok := revtrSiteToIP[site]; ok {
+					// Sample the revtrs
+
 					revtrMeasurementToSend.Src = revtrSrc
 					revtrMeasurementToSend.Dst = e.id.DstIP
 					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
@@ -230,10 +250,10 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		case <- t.C:
 			if len(revtrsToSend) > 0 {
 				// Flush what we can flush 
-				log.Infof("Sending batch of %d revtrs", len(revtrsToSend))
+				log.Infof("Collected batch of %d revtrs to send", len(revtrsToSend))
 				revtrs := make([]*revtrpb.RevtrMeasurement, len(revtrsToSend))
 				copy(revtrs, revtrsToSend)
-				go callRevtr(&client, revtrs, revtrAPIKey)
+				go callRevtr(&client, revtrs, revtrAPIKey, revtrSampling)
 				revtrsToSend = nil
 			}
 		case <-ctx.Done():
@@ -251,9 +271,10 @@ func refreshMLabNodes(h *handler) {
 	h.mlabIPToSiteLock.Lock()
 	mlabIPtoSite, err := getMLabNodes(url)
 	if err != nil {
-		panic(err)
+		log.Error(err)
+	} else {
+		h.mlabIPtoSite = mlabIPtoSite
 	}
-	h.mlabIPtoSite = mlabIPtoSite
 	h.mlabIPToSiteLock.Unlock()
 
 	
@@ -264,10 +285,12 @@ func refreshMLabNodes(h *handler) {
 			h.mlabIPToSiteLock.Lock()
 			mlabIPtoSite, err := getMLabNodes(url)
 			if err != nil {
-				panic(err)
+				log.Error(err)
+			} else {
+				h.mlabIPtoSite = mlabIPtoSite
 			}
-			h.mlabIPtoSite = mlabIPtoSite
 			h.mlabIPToSiteLock.Unlock()
+			
 		}
 	}
 
@@ -295,6 +318,10 @@ func main() {
 		log.Fatal("-revtr.hostname is required")
 	}
 
+	if *revtrSampling == 0 {
+		log.Fatal("-revtr.sampling is required and must be > 0")
+	}
+
 	var revtrGRPCPortInt int 
 	var err error
 	if *revtrGRPCPort == "" {
@@ -310,7 +337,7 @@ func main() {
 
 	// Process events received by the eventsocket handler. The goroutine will
 	// block until an open event occurs or the context is cancelled.
-	go h.ProcessOpenEvents(mainCtx, *revtrAPIKey, *revtrHostname, revtrGRPCPortInt)
+	go h.ProcessOpenEvents(mainCtx, *revtrAPIKey, *revtrHostname, revtrGRPCPortInt, *revtrSampling)
 
 	// Begin listening on the eventsocket for new events, and dispatch them to
 	// the given handler.
