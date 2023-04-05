@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # network_mode: "host" 
+    network_mode: host
     volumes:
       - ./local:/local
     # NOTE: All service containers will use the same network and IP. All ports
@@ -41,6 +41,7 @@ services:
     command:
       - -tcpinfo.eventsocket=/local/tcpevents.sock 
       - -revtr.hostname=revtr.ccs.neu.edu
-      - -revtr.grpcPort=9998
+      - -revtr.grpcPort=9999
       - -revtr.APIKey=7vg3XfyGIJZL92Ql
+      - -revtr.sampling=5
       - -loglevel=debug
