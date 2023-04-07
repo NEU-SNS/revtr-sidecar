@@ -211,7 +211,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			UseDoubleStamp: false, 
 		},
 		MaxSpoofers: uint32(10),
-		Label: "mlab_ndt",
+		Label: "mlab_ndt", // Will be changed to the uuid
 		IsRunForwardTraceroute: false,
 		IsRunRttPings: true,
 	}
@@ -226,7 +226,6 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		case e := <-h.events:
 			log.Println("processing", e)
 			// Call the gRPC API of Reverse Traceroute
-			
 			revtrMeasurementToSend := new(revtrpb.RevtrMeasurement)
 			*revtrMeasurementToSend = revtrMeasurement
 			// Match the sources with the mapping of the revtr sites / IP addresses
@@ -237,6 +236,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 
 					revtrMeasurementToSend.Src = revtrSrc
 					revtrMeasurementToSend.Dst = e.id.DstIP
+					revtrMeasurementToSend.Label = e.uuid
 					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
 					revtrsToSend = append(revtrsToSend, revtrMeasurementToSend)
 				} else {
