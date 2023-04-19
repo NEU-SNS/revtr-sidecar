@@ -211,7 +211,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			UseDoubleStamp: false, 
 		},
 		MaxSpoofers: uint32(10),
-		Label: "mlab_ndt", // Will be changed to the uuid
+		Label: "ndt_revtr_sidecar",
 		IsRunForwardTraceroute: false,
 		IsRunRttPings: true,
 	}
@@ -236,7 +236,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 
 					revtrMeasurementToSend.Src = revtrSrc
 					revtrMeasurementToSend.Dst = e.id.DstIP
-					revtrMeasurementToSend.Label = e.uuid
+					revtrMeasurementToSend.Uuid = e.uuid
 					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
 					revtrsToSend = append(revtrsToSend, revtrMeasurementToSend)
 				} else {
