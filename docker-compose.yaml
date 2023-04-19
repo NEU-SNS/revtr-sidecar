@@ -1,9 +1,7 @@
 version: '3.7'
 services:
   tcpinfo:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: measurementlab/tcp-info:v1.6.0
     network_mode: host
     volumes:
       - ./local:/local
@@ -27,7 +25,7 @@ services:
   revtr-sidecar:
     build:
       context: .
-      dockerfile: Dockerfile.example
+      dockerfile: Dockerfile
     volumes:
       - ./local:/local
     network_mode: "service:tcpinfo"
