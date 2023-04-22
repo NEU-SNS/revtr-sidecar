@@ -27,4 +27,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/revtr-sidecar:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/revtr-sidecar:${{  github.ref_name }}
