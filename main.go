@@ -51,17 +51,17 @@ var (
 var (
 
 	revtrAPICallMonitor = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "Reverse Traceroute API calls",
+		Name: "revtr_API_call_counter",
 		Help: "Reverse Traceroute API calls to the Revtr system",
 	})
 
 	revtrAPICallFailedMonitor = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "Reverse Traceroute API calls that failed",
+		Name: "revtr_API_call_failed_counter",
 		Help: "Reverse Traceroute API calls to the Revtr system that failed ",
 	})
 
 	revtrSampleMonitor = promauto.NewCounter(prometheus.CounterOpts{
-			Name: "Reverse Traceroute measurements sent",
+			Name: "revtr_sample_counter",
 			Help: "Reverse Traceroute measurements sent to the Revtr system",
 	})
 )
