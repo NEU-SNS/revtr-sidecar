@@ -50,10 +50,15 @@ var (
 
 var (
 
-	revtrAPICallsMonitor = promauto.NewCounter(prometheus.CounterOpts{
+	revtrAPICallMonitor = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "Reverse Traceroute API calls",
 		Help: "Reverse Traceroute API calls to the Revtr system",
-})
+	})
+
+	revtrAPICallFailedMonitor = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "Reverse Traceroute API calls that failed",
+		Help: "Reverse Traceroute API calls to the Revtr system that failed ",
+	})
 
 	revtrSampleMonitor = promauto.NewCounter(prometheus.CounterOpts{
 			Name: "Reverse Traceroute measurements sent",
@@ -110,13 +115,14 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d", 
 	len(revtrMeasurementsSampled), revtrSampling)
 
-	revtrAPICallsMonitor.Inc()
+	revtrAPICallMonitor.Inc()
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
 		Revtrs : revtrMeasurementsSampled,
 		Auth: revtrAPIKey,
 		CheckDB: false,
 	})
 	if err != nil {
+		revtrAPICallFailedMonitor.Inc()
 		logger.Error(err)
 	}
 
@@ -164,7 +170,7 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 		
 	} 
 
-	// Add ple2.cesnet.cz
+	// Add the test site for testing
 	mlabIPtoSite[revtrTestSrc] = revtrTestSite
 
 	return mlabIPtoSite, nil 
