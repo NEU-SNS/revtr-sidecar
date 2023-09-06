@@ -8,6 +8,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/m-lab/go v1.4.1
 	github.com/m-lab/tcp-info v1.5.3
+	github.com/prometheus/client_golang v1.7.1 // indirect
 	github.com/sirupsen/logrus v1.4.2
 	google.golang.org/grpc v1.33.1
 	google.golang.org/protobuf v1.23.0

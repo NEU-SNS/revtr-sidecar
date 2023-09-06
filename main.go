@@ -22,6 +22,11 @@ import (
 	"github.com/m-lab/tcp-info/inetdiag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	// Monitoring
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -34,11 +39,27 @@ var (
 	revtrAPIKey = flag.String("revtr.APIKey", "", "The API key used by the M-Lab nodes to call the revtr API")
 	// revtrHostname is the hostname of the server hosting the Revtr API
 	revtrHostname = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
-	revtrSampling = flag.Int("revtr.sampling", 0, "Only run 1 over revtr.sample revtrs to not overload the system")
+	revtrSampling = flag.Int("revtr.sampling", 0, "Only run 1 / revtr.sample revtrs to not overload the system")
+	prometheusPort = flag.Int("prometheus.port", 2112, "Prometheus port to run on")
+
 	revtrTestSrc = "129.10.113.200"
 	revtrTestSite = "fring2"
+	
 )
 
+
+var (
+
+	revtrAPICallsMonitor = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "Reverse Traceroute API calls",
+		Help: "Reverse Traceroute API calls to the Revtr system",
+})
+
+	revtrSampleMonitor = promauto.NewCounter(prometheus.CounterOpts{
+			Name: "Reverse Traceroute measurements sent",
+			Help: "Reverse Traceroute measurements sent to the Revtr system",
+	})
+)
 // event contains fields for an open event.
 type event struct {
 	timestamp time.Time
@@ -82,12 +103,14 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 	for i, revtrMeasurement := range(revtrMeasurements) {
 		if i % revtrSampling == 0 {
 			revtrMeasurementsSampled = append(revtrMeasurementsSampled, revtrMeasurement)
+			revtrSampleMonitor.Inc()
 		}
 	}
 
 	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d", 
 	len(revtrMeasurementsSampled), revtrSampling)
 
+	revtrAPICallsMonitor.Inc()
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
 		Revtrs : revtrMeasurementsSampled,
 		Auth: revtrAPIKey,
@@ -344,6 +367,13 @@ func main() {
 	// Begin listening on the eventsocket for new events, and dispatch them to
 	// the given handler.
 	go eventsocket.MustRun(mainCtx, *eventsocket.Filename, h)
+
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		http.ListenAndServe(":" + strconv.FormatInt(int64(*prometheusPort), 10), nil)
+	}()
+	
+	
 
 	<-mainCtx.Done()
 }

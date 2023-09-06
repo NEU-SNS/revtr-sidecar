@@ -7,17 +7,21 @@ services:
       - ./local:/local
     # NOTE: All service containers will use the same network and IP. All ports
     # must be configured on the first.
-    ports:
-      - target: 9990
-        published: 9990
-        protocol: tcp
-        mode: bridge
-      - target: 9991
-        published: 9991
-        protocol: tcp
-        mode: bridge
+
+    # If we are using network mode host, we cannot publish ports. 
+    # Do not know in which env the MLab sidecar is deployed, so commenting for now. 
+
+    # ports:
+    #   - target: 2222
+    #     published: 2222
+    #     protocol: tcp
+    #     mode: bridge
+    #   - target: 9991
+    #     published: 9991
+    #     protocol: tcp
+    #     mode: bridge
     command:
-      - -prometheusx.listen-address=:9990
+      - -prometheusx.listen-address=:2222
       - -output=/local/tcpinfo
       - -tcpinfo.eventsocket=/local/tcpevents.sock
       - -anonymize.ip=none
@@ -36,10 +40,17 @@ services:
       restart_policy:
         condition: always
         delay: 5s
+    # ports:
+    #   - target: 2112
+    #     published: 2112
+    #     protocol: tcp
+    #     mode: bridge
     command:
       - -tcpinfo.eventsocket=/local/tcpevents.sock 
       - -revtr.hostname=revtr.ccs.neu.edu
       - -revtr.grpcPort=9999
       - -revtr.APIKey=7vg3XfyGIJZL92Ql
       - -revtr.sampling=5
+      - -prometheus.port=2112
       - -loglevel=debug
+      
