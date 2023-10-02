@@ -300,20 +300,16 @@ func refreshMLabNodes(h *handler) {
 	}
 	h.mlabIPToSiteLock.Unlock()
 
-	for {
-		select {
-		case <-t.C:
-			log.Infof("Refreshing MLab nodes")
-			h.mlabIPToSiteLock.Lock()
-			mlabIPtoSite, err := getMLabNodes(url)
-			if err != nil {
-				log.Error(err)
-			} else {
-				h.mlabIPtoSite = mlabIPtoSite
-			}
-			h.mlabIPToSiteLock.Unlock()
-
+	for _ = range t.C {
+		log.Infof("Refreshing MLab nodes")
+		h.mlabIPToSiteLock.Lock()
+		mlabIPtoSite, err := getMLabNodes(url)
+		if err != nil {
+			log.Error(err)
+		} else {
+			h.mlabIPtoSite = mlabIPtoSite
 		}
+		h.mlabIPToSiteLock.Unlock()
 	}
 
 }
