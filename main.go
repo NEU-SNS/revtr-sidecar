@@ -31,40 +31,34 @@ import (
 
 var (
 	mainCtx, mainCancel = context.WithCancel(context.Background())
-	
+
 	logger = log.GetLogger()
 
-	revtrGRPCPort = flag.String("revtr.grpcPort", "", "The gRPC port of the revtr API")  
+	revtrGRPCPort = flag.String("revtr.grpcPort", "", "The gRPC port of the revtr API")
 	// revtrAPIKey is the M-Lab API key used to call revtr API
 	revtrAPIKey = flag.String("revtr.APIKey", "", "The API key used by the M-Lab nodes to call the revtr API")
 	// revtrHostname is the hostname of the server hosting the Revtr API
-	revtrHostname = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
-	revtrSampling = flag.Int("revtr.sampling", 0, "Only run 1 / revtr.sample revtrs to not overload the system")
+	revtrHostname  = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
+	revtrSampling  = flag.Int("revtr.sampling", 0, "Only run 1 / revtr.sample revtrs to not overload the system")
 	prometheusPort = flag.Int("prometheus.port", 2112, "Prometheus port to run on")
 
-	revtrTestSrc = "129.10.113.200"
+	revtrTestSrc  = "129.10.113.200"
 	revtrTestSite = "fring2"
-	
 )
-
 
 var (
-
-	revtrAPICallMonitor = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "revtr_API_call_counter",
+	revtrAPICallsMetric = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "revtr_api_calls_total",
 		Help: "Reverse Traceroute API calls to the Revtr system",
-	})
+	},
+		[]string{"status"})
 
-	revtrAPICallFailedMonitor = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "revtr_API_call_failed_counter",
-		Help: "Reverse Traceroute API calls to the Revtr system that failed ",
-	})
-
-	revtrSampleMonitor = promauto.NewCounter(prometheus.CounterOpts{
-			Name: "revtr_sample_counter",
-			Help: "Reverse Traceroute measurements sent to the Revtr system",
+	revtrSamplesMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "revtr_samples_total",
+		Help: "Reverse Traceroute measurements sent to the Revtr system",
 	})
 )
+
 // event contains fields for an open event.
 type event struct {
 	timestamp time.Time
@@ -74,8 +68,8 @@ type event struct {
 
 // handler implements the eventsocket.Handler interface.
 type handler struct {
-	events chan event
-	mlabIPtoSite map[string]string
+	events           chan event
+	mlabIPtoSite     map[string]string
 	mlabIPToSiteLock sync.RWMutex
 }
 
@@ -105,61 +99,60 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 
 	revtrMeasurementsSampled := []*revtrpb.RevtrMeasurement{}
 
-	for i, revtrMeasurement := range(revtrMeasurements) {
-		if i % revtrSampling == 0 {
+	for i, revtrMeasurement := range revtrMeasurements {
+		if i%revtrSampling == 0 {
 			revtrMeasurementsSampled = append(revtrMeasurementsSampled, revtrMeasurement)
-			revtrSampleMonitor.Inc()
+			revtrSamplesMetric.Inc()
 		}
 	}
 
-	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d", 
-	len(revtrMeasurementsSampled), revtrSampling)
+	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d",
+		len(revtrMeasurementsSampled), revtrSampling)
 
-	revtrAPICallMonitor.Inc()
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
-		Revtrs : revtrMeasurementsSampled,
-		Auth: revtrAPIKey,
+		Revtrs:  revtrMeasurementsSampled,
+		Auth:    revtrAPIKey,
 		CheckDB: false,
 	})
 	if err != nil {
-		revtrAPICallFailedMonitor.Inc()
+		revtrAPICallsMetric.WithLabelValues("error").Inc()
 		logger.Error(err)
 	}
-
+	revtrAPICallsMetric.WithLabelValues("success").Inc()
 }
 
 type MLabNode struct {
 	Hostname string `json:"hostname,omitempty"`
-	IPv4 string `json:"ipv4,omitempty"`
+	IPv4     string `json:"ipv4,omitempty"`
 }
 
 func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 	url := mlabNodesURL
-	
-    resp, err := http.Get(url)
-    if err != nil {
-        fmt.Println("Error:", err)
-        return nil, err
-    }
-    defer resp.Body.Close()
 
-    var results []MLabNode
-    err = json.NewDecoder(resp.Body).Decode(&results)
-    if err != nil {
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var results []MLabNode
+	err = json.NewDecoder(resp.Body).Decode(&results)
+	if err != nil {
 		log.Error(err)
-        return nil, err
-    }
+		return nil, err
+	}
 
 	// Now parse the map to have IPtoSite for MLab and SiteToIPs for Revtr
 	mlabIPtoSite := map[string]string{}
 
-	for _, mlabNode := range(results) {
-		// Parse the value to get the site 
-		if strings.Contains(mlabNode.Hostname, "ndt"){
+	for _, mlabNode := range results {
+		// Parse the value to get the site
+		if strings.Contains(mlabNode.Hostname, "ndt") {
 			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
 			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
 			// There are two types of NDT nodes, o ne with a iupui string?
-			var site string 
+			var site string
 			if strings.Contains(mlabSiteType, "iupui") {
 				site = mlabSiteTypeSplit[3]
 			} else {
@@ -167,19 +160,19 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 			}
 			mlabIPtoSite[mlabNode.IPv4] = site
 		}
-		
-	} 
+
+	}
 
 	// Add the test site for testing
 	mlabIPtoSite[revtrTestSrc] = revtrTestSite
 
-	return mlabIPtoSite, nil 
+	return mlabIPtoSite, nil
 
 }
 
 // ProcessOpenEvents reads and processes events received by the open handler.
 func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string,
-	 revtrGRPCPort int, revtrSampling int) {
+	revtrGRPCPort int, revtrSampling int) {
 
 	grpcDialOptions := []grpc.DialOption{}
 	connStr := fmt.Sprintf("%s:%d", revtrHostname, revtrGRPCPort)
@@ -192,7 +185,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		})
 		grpcDialOptions = append(grpcDialOptions, grpc.WithTransportCredentials(creds))
 	}
-	
+
 	conn, err := grpc.Dial(connStr, grpcDialOptions...)
 	if err != nil {
 		panic(err)
@@ -202,20 +195,20 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	client := revtrpb.NewRevtrClient(conn)
 
 	sourcesWithAtlas, err := client.GetSources(context.Background(), &revtrpb.GetSourcesReq{
-		Auth: revtrAPIKey,
+		Auth:          revtrAPIKey,
 		OnlyWithAtlas: true})
 	if err != nil {
 		log.Error(err)
-		return 
+		return
 	}
 	revtrSiteToIP := map[string]string{}
 
-	for _, sourceWithAtlas := range(sourcesWithAtlas.Srcs) {
-		// Transform site from M-Lab to site 
+	for _, sourceWithAtlas := range sourcesWithAtlas.Srcs {
+		// Transform site from M-Lab to site
 		site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
 		revtrSiteToIP[site] = sourceWithAtlas.Ip
-	} 
-	revtrSiteToIP[revtrTestSite] = revtrTestSrc 
+	}
+	revtrSiteToIP[revtrTestSite] = revtrTestSrc
 	// Skeleton for a revtr measurement coming from M-Lab
 
 	revtrMeasurement := revtrpb.RevtrMeasurement{
@@ -223,34 +216,32 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		Dst: "", // Filled later
 		// Staleness is for the staleness of the atlas
 		RrVpSelectionAlgorithm: "ingress_cover",
-		UseTimestamp: false, 
-		UseCache : true,
+		UseTimestamp:           false,
+		UseCache:               true,
 		AtlasOptions: &revtrpb.AtlasOptions{
-			UseAtlas: true,
-			UseRrPings: true,
-			IgnoreSource: false,
-			IgnoreSourceAs: false,
-			StalenessBeforeRefresh: 1, // unused
-			Staleness: 60 * 24, // Staleness of traceroute atlas in minutes, one day
-			Platforms: []string{"mlab", "ripe"},
-			
+			UseAtlas:               true,
+			UseRrPings:             true,
+			IgnoreSource:           false,
+			IgnoreSourceAs:         false,
+			StalenessBeforeRefresh: 1,       // unused
+			Staleness:              60 * 24, // Staleness of traceroute atlas in minutes, one day
+			Platforms:              []string{"mlab", "ripe"},
 		},
 		CheckDestBasedRoutingOptions: &revtrpb.CheckDestBasedRoutingOptions{
 			CheckTunnel: false,
 		},
-		HeuristicsOptions: &revtrpb.RRHeuristicsOptions {
-			UseDoubleStamp: false, 
+		HeuristicsOptions: &revtrpb.RRHeuristicsOptions{
+			UseDoubleStamp: false,
 		},
-		MaxSpoofers: uint32(10),
-		Label: "ndt_revtr_sidecar",
+		MaxSpoofers:            uint32(10),
+		Label:                  "ndt_revtr_sidecar",
 		IsRunForwardTraceroute: false,
-		IsRunRttPings: true,
+		IsRunRttPings:          true,
 	}
-
 
 	t := time.NewTicker(15 * time.Second)
 
-	revtrsToSend := [] * revtrpb.RevtrMeasurement{}
+	revtrsToSend := []*revtrpb.RevtrMeasurement{}
 
 	for {
 		select {
@@ -273,14 +264,14 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 				} else {
 					log.Infof("Site %s IP %s is not a revtr site", site, e.id.SrcIP)
 				}
-				
+
 			} else {
 				log.Infof("No NDT site matching for IP %s", e.id.SrcIP)
 			}
-			
-		case <- t.C:
+
+		case <-t.C:
 			if len(revtrsToSend) > 0 {
-				// Flush what we can flush 
+				// Flush what we can flush
 				log.Infof("Collected batch of %d revtrs to send", len(revtrsToSend))
 				revtrs := make([]*revtrpb.RevtrMeasurement, len(revtrsToSend))
 				copy(revtrs, revtrsToSend)
@@ -308,9 +299,8 @@ func refreshMLabNodes(h *handler) {
 	}
 	h.mlabIPToSiteLock.Unlock()
 
-	
 	for {
-		select{
+		select {
 		case <-t.C:
 			log.Infof("Refreshing MLab nodes")
 			h.mlabIPToSiteLock.Lock()
@@ -321,7 +311,7 @@ func refreshMLabNodes(h *handler) {
 				h.mlabIPtoSite = mlabIPtoSite
 			}
 			h.mlabIPToSiteLock.Unlock()
-			
+
 		}
 	}
 
@@ -353,7 +343,7 @@ func main() {
 		log.Fatal("-revtr.sampling is required and must be > 0")
 	}
 
-	var revtrGRPCPortInt int 
+	var revtrGRPCPortInt int
 	var err error
 	if *revtrGRPCPort == "" {
 		log.Fatal("-revtr.grpcPort is required")
@@ -363,8 +353,6 @@ func main() {
 			log.Fatal("Bad argument revtr.grpcPort")
 		}
 	}
-
-	
 
 	// Process events received by the eventsocket handler. The goroutine will
 	// block until an open event occurs or the context is cancelled.
@@ -376,10 +364,8 @@ func main() {
 
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
-		http.ListenAndServe(":" + strconv.FormatInt(int64(*prometheusPort), 10), nil)
+		http.ListenAndServe(":"+strconv.FormatInt(int64(*prometheusPort), 10), nil)
 	}()
-	
-	
 
 	<-mainCtx.Done()
 }
