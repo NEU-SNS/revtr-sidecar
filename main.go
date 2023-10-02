@@ -115,7 +115,7 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 		CheckDB: false,
 	})
 	if err != nil {
-		revtrAPICallsMetric.WithLabelValues("failed").Inc()
+		revtrAPICallsMetric.WithLabelValues("error").Inc()
 		logger.Error(err)
 	}
 	revtrAPICallsMetric.WithLabelValues("success").Inc()
