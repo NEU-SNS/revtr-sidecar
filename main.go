@@ -47,13 +47,13 @@ var (
 )
 
 var (
-	revtrAPICallMonitor = promauto.NewCounterVec(prometheus.CounterOpts{
+	revtrAPICallsMetric = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "revtr_api_calls_total",
 		Help: "Reverse Traceroute API calls to the Revtr system",
 	},
 		[]string{"status"})
 
-	revtrSampleMonitor = promauto.NewCounter(prometheus.CounterOpts{
+	revtrSamplesMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "revtr_samples_total",
 		Help: "Reverse Traceroute measurements sent to the Revtr system",
 	})
@@ -102,7 +102,7 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 	for i, revtrMeasurement := range revtrMeasurements {
 		if i%revtrSampling == 0 {
 			revtrMeasurementsSampled = append(revtrMeasurementsSampled, revtrMeasurement)
-			revtrSampleMonitor.Inc()
+			revtrSamplesMetric.Inc()
 		}
 	}
 
@@ -115,10 +115,10 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 		CheckDB: false,
 	})
 	if err != nil {
-		revtrAPICallMonitor.WithLabelValues("failed").Inc()
+		revtrAPICallsMetric.WithLabelValues("failed").Inc()
 		logger.Error(err)
 	}
-	revtrAPICallMonitor.WithLabelValues("success").Inc()
+	revtrAPICallsMetric.WithLabelValues("success").Inc()
 }
 
 type MLabNode struct {
