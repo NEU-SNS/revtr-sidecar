@@ -211,34 +211,6 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	revtrSiteToIP[revtrTestSite] = revtrTestSrc
 	// Skeleton for a revtr measurement coming from M-Lab
 
-	revtrMeasurement := revtrpb.RevtrMeasurement{
-		Src: "", // Filled later
-		Dst: "", // Filled later
-		// Staleness is for the staleness of the atlas
-		RrVpSelectionAlgorithm: "ingress_cover",
-		UseTimestamp:           false,
-		UseCache:               true,
-		AtlasOptions: &revtrpb.AtlasOptions{
-			UseAtlas:               true,
-			UseRrPings:             true,
-			IgnoreSource:           false,
-			IgnoreSourceAs:         false,
-			StalenessBeforeRefresh: 1,       // unused
-			Staleness:              60 * 24, // Staleness of traceroute atlas in minutes, one day
-			Platforms:              []string{"mlab", "ripe"},
-		},
-		CheckDestBasedRoutingOptions: &revtrpb.CheckDestBasedRoutingOptions{
-			CheckTunnel: false,
-		},
-		HeuristicsOptions: &revtrpb.RRHeuristicsOptions{
-			UseDoubleStamp: false,
-		},
-		MaxSpoofers:            uint32(10),
-		Label:                  "ndt_revtr_sidecar",
-		IsRunForwardTraceroute: false,
-		IsRunRttPings:          true,
-	}
-
 	t := time.NewTicker(15 * time.Second)
 
 	revtrsToSend := []*revtrpb.RevtrMeasurement{}
@@ -248,19 +220,15 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		case e := <-h.events:
 			log.Println("processing", e)
 			// Call the gRPC API of Reverse Traceroute
-			revtrMeasurementToSend := new(revtrpb.RevtrMeasurement)
-			*revtrMeasurementToSend = revtrMeasurement
 			// Match the sources with the mapping of the revtr sites / IP addresses
 			// Check if we have a source in the same site as the NDT
 			if site, ok := h.mlabIPtoSite[e.id.SrcIP]; ok {
 				if revtrSrc, ok := revtrSiteToIP[site]; ok {
 					// Sample the revtrs
+					revtrMeasurementToSend := newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
 
-					revtrMeasurementToSend.Src = revtrSrc
-					revtrMeasurementToSend.Dst = e.id.DstIP
-					revtrMeasurementToSend.Uuid = e.uuid
 					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
-					revtrsToSend = append(revtrsToSend, revtrMeasurementToSend)
+					revtrsToSend = append(revtrsToSend, &revtrMeasurementToSend)
 				} else {
 					log.Infof("Site %s IP %s is not a revtr site", site, e.id.SrcIP)
 				}
@@ -285,6 +253,39 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	}
 }
 
+// newRevtrMeasurement creates a new revtr measurement with the given src, dst and uuid.
+func newRevtrMeasurement(src, dst, uuid string) revtrpb.RevtrMeasurement {
+	return revtrpb.RevtrMeasurement{
+		Src:  src,
+		Dst:  dst,
+		Uuid: uuid,
+
+		// Staleness is for the staleness of the atlas
+		RrVpSelectionAlgorithm: "ingress_cover",
+		UseTimestamp:           false,
+		UseCache:               true,
+		AtlasOptions: &revtrpb.AtlasOptions{
+			UseAtlas:               true,
+			UseRrPings:             true,
+			IgnoreSource:           false,
+			IgnoreSourceAs:         false,
+			StalenessBeforeRefresh: 1,       // unused
+			Staleness:              60 * 24, // Staleness of traceroute atlas in minutes, one day
+			Platforms:              []string{"mlab", "ripe"},
+		},
+		CheckDestBasedRoutingOptions: &revtrpb.CheckDestBasedRoutingOptions{
+			CheckTunnel: false,
+		},
+		HeuristicsOptions: &revtrpb.RRHeuristicsOptions{
+			UseDoubleStamp: false,
+		},
+		MaxSpoofers:            uint32(10),
+		Label:                  "ndt_revtr_sidecar",
+		IsRunForwardTraceroute: false,
+		IsRunRttPings:          true,
+	}
+}
+
 func refreshMLabNodes(h *handler) {
 
 	t := time.NewTicker(time.Hour * 6)
@@ -299,20 +300,16 @@ func refreshMLabNodes(h *handler) {
 	}
 	h.mlabIPToSiteLock.Unlock()
 
-	for {
-		select {
-		case <-t.C:
-			log.Infof("Refreshing MLab nodes")
-			h.mlabIPToSiteLock.Lock()
-			mlabIPtoSite, err := getMLabNodes(url)
-			if err != nil {
-				log.Error(err)
-			} else {
-				h.mlabIPtoSite = mlabIPtoSite
-			}
-			h.mlabIPToSiteLock.Unlock()
-
+	for _ = range t.C {
+		log.Infof("Refreshing MLab nodes")
+		h.mlabIPToSiteLock.Lock()
+		mlabIPtoSite, err := getMLabNodes(url)
+		if err != nil {
+			log.Error(err)
+		} else {
+			h.mlabIPtoSite = mlabIPtoSite
 		}
+		h.mlabIPToSiteLock.Unlock()
 	}
 
 }
