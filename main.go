@@ -60,7 +60,7 @@ var (
 
 	revtrAPIRequestDurationHist = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "revtr_api_request_duration_seconds",
-		Buckets: []float64{0.05, 0, 1, 0.2, 0.4, 1, 3},
+		Buckets: []float64{0.05, 0.1, 0.2, 0.4, 1, 3},
 		Help:    "Reverse Traceroute API request duration",
 	})
 
