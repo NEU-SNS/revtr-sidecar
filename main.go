@@ -57,6 +57,18 @@ var (
 		Name: "revtr_samples_total",
 		Help: "Reverse Traceroute measurements sent to the Revtr system",
 	})
+
+	revtrAPIRequestDurationHist = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "revtr_api_request_duration_seconds",
+		Buckets: []float64{0.05, 0, 1, 0.2, 0.4, 1, 3},
+		Help:    "Reverse Traceroute API request duration",
+	})
+
+	revtrEventSocketHandlingDurationHist = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "revtr_eventsocket_polling_duration_seconds",
+		Buckets: []float64{0.001, 0.01, 0.1, 0.2, 0.4, 1},
+		Help:    "Reverse Traceroute eventsocket polling duration",
+	})
 )
 
 // event contains fields for an open event.
@@ -95,7 +107,8 @@ func (h *handler) Close(ctx context.Context, timestamp time.Time, uuid string) {
 
 func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMeasurement, revtrAPIKey string, revtrSampling int) {
 	// Put a timeout in context
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
 
 	revtrMeasurementsSampled := []*revtrpb.RevtrMeasurement{}
 
@@ -109,11 +122,13 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d",
 		len(revtrMeasurementsSampled), revtrSampling)
 
+	start := time.Now()
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
 		Revtrs:  revtrMeasurementsSampled,
 		Auth:    revtrAPIKey,
 		CheckDB: false,
 	})
+	revtrAPIRequestDurationHist.Observe(time.Since(start).Seconds())
 	if err != nil {
 		revtrAPICallsMetric.WithLabelValues("error").Inc()
 		logger.Error(err)
@@ -218,6 +233,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	for {
 		select {
 		case e := <-h.events:
+			start := time.Now()
 			log.Println("processing", e)
 			// Call the gRPC API of Reverse Traceroute
 			// Match the sources with the mapping of the revtr sites / IP addresses
@@ -236,7 +252,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			} else {
 				log.Infof("No NDT site matching for IP %s", e.id.SrcIP)
 			}
-
+			revtrEventSocketHandlingDurationHist.Observe(time.Since(start).Seconds())
 		case <-t.C:
 			if len(revtrsToSend) > 0 {
 				// Flush what we can flush
@@ -300,7 +316,7 @@ func refreshMLabNodes(h *handler) {
 	}
 	h.mlabIPToSiteLock.Unlock()
 
-	for _ = range t.C {
+	for range t.C {
 		log.Infof("Refreshing MLab nodes")
 		h.mlabIPToSiteLock.Lock()
 		mlabIPtoSite, err := getMLabNodes(url)
