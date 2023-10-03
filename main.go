@@ -129,7 +129,7 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 		CheckDB: false,
 	})
 	elapsed := time.Since(start)
-	log.Debugf("revtr API request took %d us", elapsed.Milliseconds())
+	log.Debugf("revtr API request took %d ms", elapsed.Milliseconds())
 	revtrAPIRequestDurationHist.Observe(elapsed.Seconds())
 	if err != nil {
 		revtrAPICallsMetric.WithLabelValues("error").Inc()
