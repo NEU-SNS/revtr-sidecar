@@ -128,7 +128,9 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 		Auth:    revtrAPIKey,
 		CheckDB: false,
 	})
-	revtrAPIRequestDurationHist.Observe(time.Since(start).Seconds())
+	elapsed := time.Since(start)
+	log.Debugf("revtr API request took %d ms", elapsed.Milliseconds())
+	revtrAPIRequestDurationHist.Observe(elapsed.Seconds())
 	if err != nil {
 		revtrAPICallsMetric.WithLabelValues("error").Inc()
 		logger.Error(err)
@@ -252,7 +254,9 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			} else {
 				log.Infof("No NDT site matching for IP %s", e.id.SrcIP)
 			}
-			revtrEventSocketHandlingDurationHist.Observe(time.Since(start).Seconds())
+			elapsed := time.Since(start)
+			log.Debugf("eventsocket handling took %d ms", elapsed.Milliseconds())
+			revtrEventSocketHandlingDurationHist.Observe(elapsed.Seconds())
 		case <-t.C:
 			if len(revtrsToSend) > 0 {
 				// Flush what we can flush
