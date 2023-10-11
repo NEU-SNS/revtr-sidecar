@@ -126,21 +126,9 @@ func callRevtr(client *revtrpb.RevtrClient, revtrMeasurements []*revtrpb.RevtrMe
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	revtrMeasurementsSampled := []*revtrpb.RevtrMeasurement{}
-
-	for i, revtrMeasurement := range revtrMeasurements {
-		if i%revtrSampling == 0 {
-			revtrMeasurementsSampled = append(revtrMeasurementsSampled, revtrMeasurement)
-			revtrSamplesMetric.Inc()
-		}
-	}
-
-	logger.Debugf("Sending %d reverse traceroutes to the revtr server because of sampling 1 on %d",
-		len(revtrMeasurementsSampled), revtrSampling)
-
 	start := time.Now()
 	_, err := (*client).RunRevtr(ctx, &revtrpb.RunRevtrReq{
-		Revtrs:  revtrMeasurementsSampled,
+		Revtrs:  revtrMeasurements,
 		Auth:    revtrAPIKey,
 		CheckDB: false,
 	})
@@ -247,6 +235,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	t := time.NewTicker(15 * time.Second)
 
 	revtrsToSend := []*revtrpb.RevtrMeasurement{}
+	i := 0
 
 	for {
 		select {
@@ -258,11 +247,14 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			// Check if we have a source in the same site as the NDT
 			if site, ok := h.mlabIPtoSite[e.id.SrcIP]; ok {
 				if revtrSrc, ok := revtrSiteToIP[site]; ok {
-					// Sample the revtrs
-					revtrMeasurementToSend := newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
-
-					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send", revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
-					revtrsToSend = append(revtrsToSend, &revtrMeasurementToSend)
+					if i%revtrSampling == 0 {
+						// Sample the revtrs
+						revtrMeasurementToSend := newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
+						logger.Debugf("Adding reverse traceroute with source %s and destination %s to send",
+							revtrMeasurementToSend.Src, revtrMeasurementToSend.Dst)
+						revtrsToSend = append(revtrsToSend, &revtrMeasurementToSend)
+					}
+					i++
 				} else {
 					log.Infof("Site %s IP %s is not a revtr site", site, e.id.SrcIP)
 				}
@@ -276,7 +268,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		case <-t.C:
 			if len(revtrsToSend) > 0 {
 				// Flush what we can flush
-				log.Infof("Collected batch of %d revtrs to send", len(revtrsToSend))
+				log.Infof("Collected batch of %d revtrs to send (sampling 1/%d)", len(revtrsToSend), revtrSampling)
 				revtrs := make([]*revtrpb.RevtrMeasurement, len(revtrsToSend))
 				copy(revtrs, revtrsToSend)
 				go callRevtr(&client, revtrs, revtrAPIKey, revtrSampling)
