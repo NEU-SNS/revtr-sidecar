@@ -258,6 +258,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 						// Sample the event.
 						e.RevtrMeasurement = newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
 						eventsToSend = append(eventsToSend, e)
+						revtrSamplesMetric.Inc()
 						logger.Debugf("Adding reverse traceroute with source %s and destination %s to send",
 							revtrSrc, e.id.DstIP)
 					}
