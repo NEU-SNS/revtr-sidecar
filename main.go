@@ -66,7 +66,7 @@ var (
 
 	revtrEventProcessingDurationHist = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "revtr_event_processing_duration_seconds",
-		Buckets: []float64{0.1, 0.4, 0.8, 1, 2, 4, 8, 15},
+		Buckets: []float64{1, 2, 4, 8, 15},
 		Help:    "Reverse Traceroute end-to-end event processing duration",
 	})
 
