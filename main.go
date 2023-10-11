@@ -69,6 +69,20 @@ var (
 		Buckets: []float64{0.001, 0.01, 0.1, 0.2, 0.4, 1},
 		Help:    "Reverse Traceroute eventsocket polling duration",
 	})
+
+	revtrEventsProcessedMetric = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "revtr_eventsocket_events_processed_total",
+			Help: "Reverse Traceroute eventsocket events processed by event type",
+		}, []string{"event"},
+	)
+
+	revtrEventsSkippedMetric = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "revtr_eventsocket_events_skipped_total",
+			Help: "Reverse Traceroute eventsocket events skipped by event type",
+		}, []string{"event"},
+	)
 )
 
 // event contains fields for an open event.
@@ -92,10 +106,12 @@ func (h *handler) Open(ctx context.Context, timestamp time.Time, uuid string, id
 	// be read by an asynchronous processing goroutine.
 	select {
 	case h.events <- event{timestamp: timestamp, uuid: uuid, id: id}:
+		revtrEventsProcessedMetric.WithLabelValues("open").Inc()
 		log.Println("open ", "sent", uuid, timestamp, id)
 	default:
 		// If the write to the events channel would have blocked, discard this
 		// event instead.
+		revtrEventsSkippedMetric.WithLabelValues("open").Inc()
 		log.Println("open ", "skipped", uuid, timestamp, id)
 	}
 }
