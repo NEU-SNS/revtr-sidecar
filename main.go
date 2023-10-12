@@ -188,8 +188,12 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 				site = mlabSiteTypeSplit[2]
 			}
 			mlabIPtoSite[mlabNode.IPv4] = site
+		} else if strings.Contains(mlabNode.Hostname, "staging") {
+			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
+			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
+			site := mlabSiteTypeSplit[1]
+			mlabIPtoSite[mlabNode.IPv4] = site
 		}
-
 	}
 
 	// Add the test site for testing
