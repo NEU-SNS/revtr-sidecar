@@ -177,7 +177,9 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 
 	for _, mlabNode := range results {
 		// Parse the value to get the site
-		if strings.Contains(mlabNode.Hostname, "ndt") {
+		if strings.HasPrefix(mlabNode.Hostname, "ndt") ||
+			strings.HasPrefix(mlabNode.Hostname, "revtr") ||
+			strings.HasPrefix(mlabNode.Hostname, "wehe") {
 			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
 			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
 			// There are two types of NDT nodes, o ne with a iupui string?
@@ -188,7 +190,7 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 				site = mlabSiteTypeSplit[2]
 			}
 			mlabIPtoSite[mlabNode.IPv4] = site
-		} else if strings.Contains(mlabNode.Hostname, "staging") {
+		} else if strings.HasPrefix(mlabNode.Hostname, "mlab") {
 			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
 			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
 			site := mlabSiteTypeSplit[1]
@@ -353,6 +355,7 @@ func refreshMLabNodes(h *handler) {
 func main() {
 
 	h := &handler{events: make(chan event)}
+	// getMLabNodes("https://siteinfo.mlab-oti.measurementlab.net/v2/sites/hostnames.json")
 	go refreshMLabNodes(h)
 
 	defer mainCancel()
