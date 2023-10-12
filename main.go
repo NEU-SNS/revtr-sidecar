@@ -178,7 +178,6 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 	for _, mlabNode := range results {
 		// Parse the value to get the site
 		if strings.HasPrefix(mlabNode.Hostname, "ndt") ||
-			strings.HasPrefix(mlabNode.Hostname, "revtr") ||
 			strings.HasPrefix(mlabNode.Hostname, "wehe") {
 			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
 			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
@@ -190,12 +189,13 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 				site = mlabSiteTypeSplit[2]
 			}
 			mlabIPtoSite[mlabNode.IPv4] = site
-		} else if strings.HasPrefix(mlabNode.Hostname, "mlab") {
-			mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
-			mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
-			site := mlabSiteTypeSplit[1]
-			mlabIPtoSite[mlabNode.IPv4] = site
 		}
+		// else if strings.HasPrefix(mlabNode.Hostname, "mlab") {
+		// 	mlabSiteType := strings.Split(mlabNode.Hostname, ".")[0]
+		// 	mlabSiteTypeSplit := strings.Split(mlabSiteType, "-")
+		// 	site := mlabSiteTypeSplit[1]
+		// 	mlabIPtoSite[mlabNode.IPv4] = site
+		// }
 	}
 
 	// Add the test site for testing
