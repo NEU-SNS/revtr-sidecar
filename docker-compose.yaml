@@ -1,0 +1,48 @@
+version: '3.7'
+services:
+  tcpinfo:
+    image: measurementlab/tcp-info:v1.6.0
+    network_mode: host
+    volumes:
+      - ./local:/local
+    # NOTE: All service containers will use the same network and IP. All ports
+    # must be configured on the first.
+
+    # If we are using network mode host, we cannot publish ports. 
+    # Do not know in which env the MLab sidecar is deployed, so commenting for now. 
+
+    # ports:
+    #   - target: 2222
+    #     published: 2222
+    #     protocol: tcp
+    #     mode: bridge
+    #   - target: 9991
+    #     published: 9991
+    #     protocol: tcp
+    #     mode: bridge
+    command:
+      - -prometheusx.listen-address=:2222
+      - -output=/local/tcpinfo
+      - -tcpinfo.eventsocket=/local/tcpevents.sock
+      - -anonymize.ip=none
+
+  revtr-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./local:/local
+    network_mode: "service:tcpinfo"
+    deploy:
+      # NOTE: container may fail on startup if it tries to read a
+      # socket that the above services are not yet listening on.
+      # So, allow restart.
+      restart_policy:
+        condition: always
+        delay: 5s
+    # ports:
+    #   - target: 2112
+    #     published: 2112
+    #     protocol: tcp
+    #     mode: bridge
+      
