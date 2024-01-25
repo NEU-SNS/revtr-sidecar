@@ -239,9 +239,12 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 	revtrSiteToIP := map[string]string{}
 
 	for _, sourceWithAtlas := range sourcesWithAtlas.Srcs {
-		// Transform site from M-Lab to site
-		site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
-		revtrSiteToIP[site] = sourceWithAtlas.Ip
+		// Transform site from M-Lab to site for MLab nodes
+		if strings.Contains(sourceWithAtlas.Site, "MLab - ") {
+			site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
+			revtrSiteToIP[site] = sourceWithAtlas.Ip
+		}
+
 	}
 	revtrSiteToIP[revtrTestSite] = revtrTestSrc
 	// Skeleton for a revtr measurement coming from M-Lab
