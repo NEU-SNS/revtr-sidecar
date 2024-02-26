@@ -27,7 +27,7 @@ type RevtrClient interface {
 	// Internal. Should not be used
 	GetRevtr(ctx context.Context, in *GetRevtrReq, opts ...grpc.CallOption) (*GetRevtrResp, error)
 	// Internal. Should not be used
-	GetRevtrByLabel(ctx context.Context, in *GetRevtrByLabelReq, opts ...grpc.CallOption) (*GetRevtrByLabelResp, error)
+	GetRevtrByLabel(ctx context.Context, in *GetRevtrByLabelReq, opts ...grpc.CallOption) (*GetRevtrResp, error)
 	// *
 	// Internal. Should not be used
 	GetRevtrMetaOnly(ctx context.Context, in *GetRevtrMetaOnlyReq, opts ...grpc.CallOption) (*GetRevtrMetaOnlyResp, error)
@@ -72,8 +72,8 @@ func (c *revtrClient) GetRevtr(ctx context.Context, in *GetRevtrReq, opts ...grp
 	return out, nil
 }
 
-func (c *revtrClient) GetRevtrByLabel(ctx context.Context, in *GetRevtrByLabelReq, opts ...grpc.CallOption) (*GetRevtrByLabelResp, error) {
-	out := new(GetRevtrByLabelResp)
+func (c *revtrClient) GetRevtrByLabel(ctx context.Context, in *GetRevtrByLabelReq, opts ...grpc.CallOption) (*GetRevtrResp, error) {
+	out := new(GetRevtrResp)
 	err := c.cc.Invoke(ctx, "/pb.Revtr/GetRevtrByLabel", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ type RevtrServer interface {
 	// Internal. Should not be used
 	GetRevtr(context.Context, *GetRevtrReq) (*GetRevtrResp, error)
 	// Internal. Should not be used
-	GetRevtrByLabel(context.Context, *GetRevtrByLabelReq) (*GetRevtrByLabelResp, error)
+	GetRevtrByLabel(context.Context, *GetRevtrByLabelReq) (*GetRevtrResp, error)
 	// *
 	// Internal. Should not be used
 	GetRevtrMetaOnly(context.Context, *GetRevtrMetaOnlyReq) (*GetRevtrMetaOnlyResp, error)
@@ -173,7 +173,7 @@ func (UnimplementedRevtrServer) RunRevtr(context.Context, *RunRevtrReq) (*RunRev
 func (UnimplementedRevtrServer) GetRevtr(context.Context, *GetRevtrReq) (*GetRevtrResp, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRevtr not implemented")
 }
-func (UnimplementedRevtrServer) GetRevtrByLabel(context.Context, *GetRevtrByLabelReq) (*GetRevtrByLabelResp, error) {
+func (UnimplementedRevtrServer) GetRevtrByLabel(context.Context, *GetRevtrByLabelReq) (*GetRevtrResp, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRevtrByLabel not implemented")
 }
 func (UnimplementedRevtrServer) GetRevtrMetaOnly(context.Context, *GetRevtrMetaOnlyReq) (*GetRevtrMetaOnlyResp, error) {

@@ -244,7 +244,6 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
 			revtrSiteToIP[site] = sourceWithAtlas.Ip
 		}
-
 	}
 	revtrSiteToIP[revtrTestSite] = revtrTestSrc
 	// Skeleton for a revtr measurement coming from M-Lab
@@ -324,6 +323,7 @@ func newRevtrMeasurement(src, dst, uuid string) *revtrpb.RevtrMeasurement {
 		Label:                  "ndt_revtr_sidecar",
 		IsRunForwardTraceroute: false,
 		IsRunRttPings:          true,
+		IsTryFromDestinationAs: true,
 	}
 }
 
