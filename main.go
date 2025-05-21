@@ -205,6 +205,28 @@ func getMLabNodes(mlabNodesURL string) (map[string]string, error) {
 
 }
 
+func getSources(client revtrpb.RevtrClient, revtrAPIKey string) (map[string]string, error) {
+	sourcesWithAtlas, err := client.GetSources(context.Background(), &revtrpb.GetSourcesReq{
+		Auth:          revtrAPIKey,
+		OnlyWithAtlas: true})
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	revtrSiteToIP := map[string]string{}
+
+	for _, sourceWithAtlas := range sourcesWithAtlas.Srcs {
+		// Transform site from M-Lab to site for MLab nodes
+		if strings.Contains(sourceWithAtlas.Site, "MLab - ") {
+			site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
+			revtrSiteToIP[site] = sourceWithAtlas.Ip
+		}
+	}
+	revtrSiteToIP[revtrTestSite] = revtrTestSrc
+	// Skeleton for a revtr measurement coming from M-Lab
+	return revtrSiteToIP, err
+}
+
 // ProcessOpenEvents reads and processes events received by the open handler.
 func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, revtrHostname string,
 	revtrGRPCPort int, revtrSampling int) {
@@ -229,26 +251,20 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 
 	client := revtrpb.NewRevtrClient(conn)
 
-	sourcesWithAtlas, err := client.GetSources(context.Background(), &revtrpb.GetSourcesReq{
-		Auth:          revtrAPIKey,
-		OnlyWithAtlas: true})
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	revtrSiteToIP := map[string]string{}
-
-	for _, sourceWithAtlas := range sourcesWithAtlas.Srcs {
-		// Transform site from M-Lab to site for MLab nodes
-		if strings.Contains(sourceWithAtlas.Site, "MLab - ") {
-			site := strings.Split(sourceWithAtlas.Site, "MLab - ")[1]
-			revtrSiteToIP[site] = sourceWithAtlas.Ip
+	var revtrSiteToIP map[string]string
+	for {
+		// Retry until the connection works, before entering into the event loop.
+		revtrSiteToIP, err = getSources(client, revtrAPIKey)
+		if err != nil {
+			time.Sleep(time.Minute)
+		} else {
+			break
 		}
 	}
-	revtrSiteToIP[revtrTestSite] = revtrTestSrc
-	// Skeleton for a revtr measurement coming from M-Lab
 
 	t := time.NewTicker(15 * time.Second)
+
+	tSources := time.NewTicker(15 * time.Minute)
 
 	eventsToSend := []event{}
 	i := 0
@@ -286,6 +302,15 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 				go callRevtr(&client, events, revtrAPIKey, revtrSampling)
 				eventsToSend = nil
 			}
+		case <-tSources.C:
+			// Refresh to check if the source is still a revtr source.
+			revtrSiteToIPNew, err := getSources(client, revtrAPIKey)
+			if err != nil {
+				log.Error(err)
+			} else {
+				revtrSiteToIP = revtrSiteToIPNew
+			}
+
 		case <-ctx.Done():
 			log.Println("shutdown")
 			return
