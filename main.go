@@ -40,7 +40,7 @@ var (
 	// revtrHostname is the hostname of the server hosting the Revtr API
 	revtrHostname  = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
 	revtrSampling  = flag.Int("revtr.sampling", 0, "Only run 1 / revtr.sample revtrs to not overload the system")
-	prometheusPort = flag.Int("prometheus.port", 2112, "Prometheus port to run on")
+	prometheusAddr = flag.String("prometheus.addr", ":2122", "Prometheus address to listen on")
 
 	revtrTestSrc  = "129.10.113.200"
 	revtrTestSite = "fring2"
@@ -428,7 +428,7 @@ func main() {
 
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
-		http.ListenAndServe(":"+strconv.FormatInt(int64(*prometheusPort), 10), nil)
+		http.ListenAndServe(*prometheusAddr, nil)
 	}()
 
 	<-mainCtx.Done()
