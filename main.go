@@ -37,6 +37,9 @@ var (
 	revtrGRPCPort = flag.String("revtr.grpcPort", "", "The gRPC port of the revtr API")
 	// revtrAPIKey is the M-Lab API key used to call revtr API
 	revtrAPIKey = flag.String("revtr.APIKey", "", "The API key used by the M-Lab nodes to call the revtr API")
+	// revtrAPIKeyFile is a file containing the API key, e.g. one delivered to
+	// an autonode by the M-Lab registration service. It overrides revtrAPIKey.
+	revtrAPIKeyFile flagx.File
 	// revtrHostname is the hostname of the server hosting the Revtr API
 	revtrHostname  = flag.String("revtr.hostname", "", "The hostname of the revtr API server")
 	revtrSampling  = flag.Int("revtr.sampling", 0, "Only run 1 / revtr.sample revtrs to not overload the system")
@@ -223,6 +226,7 @@ func getSources(client revtrpb.RevtrClient, revtrAPIKey string) (map[string]stri
 		}
 	}
 	revtrSiteToIP[revtrTestSite] = revtrTestSrc
+	log.Infof("getSources returned %d sources: %v", len(revtrSiteToIP), revtrSiteToIP)
 	// Skeleton for a revtr measurement coming from M-Lab
 	return revtrSiteToIP, err
 }
@@ -262,6 +266,17 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 		}
 	}
 
+	// revtrIPSet is the set of IPs that are registered revtr VPs, used to
+	// support autonodes where the NDT server and revtr VP share the same IP.
+	buildRevtrIPSet := func(siteToIP map[string]string) map[string]bool {
+		s := make(map[string]bool, len(siteToIP))
+		for _, ip := range siteToIP {
+			s[ip] = true
+		}
+		return s
+	}
+	revtrIPSet := buildRevtrIPSet(revtrSiteToIP)
+
 	t := time.NewTicker(15 * time.Second)
 
 	tSources := time.NewTicker(15 * time.Minute)
@@ -276,22 +291,31 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 			// Call the gRPC API of Reverse Traceroute
 			// Match the sources with the mapping of the revtr sites / IP addresses
 			// Check if we have a source in the same site as the NDT
+			var revtrSrc string
 			if site, ok := h.mlabIPtoSite[e.id.SrcIP]; ok {
-				if revtrSrc, ok := revtrSiteToIP[site]; ok {
-					if i%revtrSampling == 0 {
-						// Sample the event.
-						e.RevtrMeasurement = newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
-						eventsToSend = append(eventsToSend, e)
-						revtrSamplesMetric.Inc()
-						logger.Debugf("Adding reverse traceroute with source %s and destination %s to send",
-							revtrSrc, e.id.DstIP)
-					}
-					i++
+				// Standard M-Lab node: NDT server and revtr VP are at the same
+				// site but have different IPs; look up the revtr VP by site.
+				if src, ok := revtrSiteToIP[site]; ok {
+					revtrSrc = src
 				} else {
 					log.Infof("Site %s IP %s is not a revtr site", site, e.id.SrcIP)
 				}
+			} else if revtrIPSet[e.id.SrcIP] {
+				// Autonode: NDT server and revtr VP share the same IP.
+				revtrSrc = e.id.SrcIP
+				log.Infof("Autonode: using NDT server IP %s directly as revtr source", revtrSrc)
 			} else {
 				log.Infof("No NDT site matching for IP %s", e.id.SrcIP)
+			}
+			if revtrSrc != "" {
+				if i%revtrSampling == 0 {
+					e.RevtrMeasurement = newRevtrMeasurement(revtrSrc, e.id.DstIP, e.uuid)
+					eventsToSend = append(eventsToSend, e)
+					revtrSamplesMetric.Inc()
+					logger.Debugf("Adding reverse traceroute with source %s and destination %s to send",
+						revtrSrc, e.id.DstIP)
+				}
+				i++
 			}
 		case <-t.C:
 			if len(eventsToSend) > 0 {
@@ -309,6 +333,7 @@ func (h *handler) ProcessOpenEvents(ctx context.Context, revtrAPIKey string, rev
 				log.Error(err)
 			} else {
 				revtrSiteToIP = revtrSiteToIPNew
+				revtrIPSet = buildRevtrIPSet(revtrSiteToIP)
 			}
 
 		case <-ctx.Done():
@@ -388,15 +413,21 @@ func main() {
 
 	defer mainCancel()
 
+	flag.Var(&revtrAPIKeyFile, "revtr.APIKeyFile", "File containing the API key used to call the revtr API (overrides -revtr.APIKey)")
 	flag.Parse()
 	rtx.Must(flagx.ArgsFromEnv(flag.CommandLine), "could not get args from environment variables")
+
+	apiKey := *revtrAPIKey
+	if revtrAPIKeyFile.Name != "" {
+		apiKey = strings.TrimSpace(revtrAPIKeyFile.Content())
+	}
 
 	if *eventsocket.Filename == "" {
 		log.Fatal("-tcpinfo.eventsocket path is required")
 	}
 
-	if *revtrAPIKey == "" {
-		log.Fatal("-revtr.APIKey is required")
+	if apiKey == "" {
+		log.Fatal("-revtr.APIKey or -revtr.APIKeyFile is required")
 	}
 
 	if *revtrHostname == "" {
@@ -420,7 +451,7 @@ func main() {
 
 	// Process events received by the eventsocket handler. The goroutine will
 	// block until an open event occurs or the context is cancelled.
-	go h.ProcessOpenEvents(mainCtx, *revtrAPIKey, *revtrHostname, revtrGRPCPortInt, *revtrSampling)
+	go h.ProcessOpenEvents(mainCtx, apiKey, *revtrHostname, revtrGRPCPortInt, *revtrSampling)
 
 	// Begin listening on the eventsocket for new events, and dispatch them to
 	// the given handler.
