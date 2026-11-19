@@ -6,7 +6,7 @@ require (
 	github.com/golang/protobuf v1.5.3
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/m-lab/go v1.4.1
-	github.com/m-lab/tcp-info v1.10.0
+	github.com/m-lab/tcp-info v1.10.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.3
 	google.golang.org/grpc v1.57.0
